@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# run outputs: keep the baseline, ignore the rest
+results/*.json
+!results/baseline.json

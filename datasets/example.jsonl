@@ -1,0 +1,3 @@
+{"id": "q001", "question": "Replace with a question your documents can answer", "expected_sources": ["doc-id-or-filename.pdf"]}
+{"id": "q002", "question": "A question whose answer spans two documents", "expected_sources": ["notes-week1.md", "notes-week2.md"]}
+{"id": "q003", "question": "A question about a specific detail or number", "expected_sources": ["textbook-ch3.pdf"]}
