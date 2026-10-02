@@ -1,12 +1,15 @@
+.env.example
 __pycache__/
 *.pyc
-.venv/
-.env
+*.pyo
 .pytest_cache/
 .ruff_cache/
 dist/
+build/
 *.egg-info/
-
-# run outputs: keep the baseline, ignore the rest
+.venv/
+venv/
 results/*.json
-!results/baseline.json
+datasets/*.jsonl
+!datasets/example.jsonl
+.DS_Store
