@@ -1,106 +1,149 @@
 # Eval-harness
 
-Regression tests for RAG quality. Runs a fixed question set against a RAG API, scores retrieval and answer faithfulness, and fails CI when the scores drop.
+A lightweight Retrieval-Augmented Generation (RAG) evaluation harness for testing whether a blog or knowledge-base assistant retrieves the right sources and answers faithfully.
 
-Built to test [Voice AI Study Coach](https://github.com/abrilohd). Works with any API that follows the contract below.
+This project runs a fixed set of questions against a RAG API, measures retrieval quality and answer grounding, and fails CI when a change causes regression. It is designed for teams iterating on prompts, chunking, retrieval settings, and document structure without sacrificing answer quality.
 
-> **Status:** scaffold. Metrics, CLI, and CI are in place. The real dataset and first baseline are next (see [Roadmap](#roadmap)).
+## Why this project exists
+
+When building a RAG system for a blog, knowledge base, or documentation search experience, the real risk is not just whether the model answers at all — it is whether it:
+
+- retrieves the correct source material,
+- ranks the most relevant chunks first,
+- stays grounded in the retrieved context, and
+- avoids hallucinating unsupported claims.
+
+`Eval-harness` gives you a repeatable way to catch those regressions early.
 
 ## What it measures
 
-| Metric | How |
-|---|---|
-| **Hit@k** | Share of questions where an expected source appears in the top k retrieved chunks |
-| **MRR@k** | Mean of 1/rank of the first expected source |
-| **Faithfulness** | An LLM judge scores 0 to 1 how much of the answer is supported by the retrieved chunks |
+| Metric | What it checks |
+| --- | --- |
+| Hit@k | Whether at least one expected source appears in the top-k retrieved chunks |
+| MRR@k | How early the first expected source appears in the ranking |
+| Faithfulness | How much of the generated answer is supported by the retrieved context |
+
+This makes it useful for evaluating RAG pipelines on real content, including blog posts, product docs, tutorials, and internal knowledge sources.
+
+## Features
+
+- JSONL dataset format for test cases and expected sources
+- HTTP adapter for calling a RAG endpoint
+- Retrieval metrics for hit rate and reciprocal rank
+- LLM-based faithfulness judging
+- CLI for running, saving, and comparing experiments
+- CI-ready thresholds to fail builds on regressions
 
 ## Quickstart
 
 ```bash
 pip install -e ".[dev]"
-cp .env.example .env        # set EVAL_TARGET_URL and ANTHROPIC_API_KEY
+cp .env.example .env
+# set EVAL_TARGET_URL and ANTHROPIC_API_KEY
 
-evalharness run --dataset datasets/example.jsonl --k 5 --label baseline
-evalharness run --dataset datasets/example.jsonl --k 5 --label chunk-256 \
-  --min-hit-rate 0.75 --min-faithfulness 0.80
-evalharness compare results/baseline.json results/chunk-256.json
+# run a baseline evaluation
+ evalharness run --dataset datasets/example.jsonl --k 5 --label baseline
+
+# check a new configuration against thresholds
+ evalharness run --dataset datasets/example.jsonl --k 5 --label chunk-256 \
+   --min-hit-rate 0.75 --min-faithfulness 0.80
+
+# compare results from two runs
+ evalharness compare results/baseline.json results/chunk-256.json
 ```
 
-Retrieval only, no judge calls: add `--no-judge`.
+You can disable faithfulness judging for a retrieval-only check:
 
-Exit code is `1` if any case errors or a threshold is missed.
+```bash
+evalharness run --dataset datasets/example.jsonl --k 5 --label baseline --no-judge
+```
 
-## Dataset
+If any threshold is missed, the command exits with a non-zero status code.
 
-One JSON object per line in `datasets/*.jsonl`:
+## Dataset format
+
+Each line in `datasets/*.jsonl` is a JSON object:
 
 ```json
 {"id": "q001", "question": "What does the ivfflat index trade off?", "expected_sources": ["pgvector-notes.md"]}
 ```
 
-`expected_sources` are source IDs as your API returns them. A hit means any one of them was retrieved.
+`expected_sources` are source identifiers returned by your RAG system. A hit is recorded when any expected source is present in the top-k results.
 
 ## Target API contract
 
-`POST $EVAL_TARGET_URL`
+The harness expects a RAG endpoint that accepts a query and returns an answer plus ranked sources:
+
+```http
+POST $EVAL_TARGET_URL
+```
+
+Request:
 
 ```json
-// request
 {"query": "string", "top_k": 5}
+```
 
-// response
+Response:
+
+```json
 {"answer": "string", "sources": [{"id": "string", "text": "string"}]}
 ```
 
-`sources` must be in ranked order. For a new system, write a small class implementing `RagAdapter` in `src/evalharness/adapters/`.
+The `sources` array should be in ranked order. If you are integrating a new backend, implement a small adapter in `src/evalharness/adapters/`.
 
-## CI
+## Project layout
 
-- `ci.yml` runs Ruff and pytest on every push and PR.
-- The `eval` job runs the harness against a live API on manual dispatch. It needs `EVAL_TARGET_URL`, `EVAL_TARGET_TOKEN`, and `ANTHROPIC_API_KEY` as repo secrets.
-
-## Results
-
-Filled in as experiments run. One change per row.
-
-| Run | Change | Hit@5 | MRR@5 | Faithfulness |
-|---|---|---|---|---|
-| baseline | none | — | — | — |
-
-## Layout
-
-```
+```text
 Eval-harness/
 ├── .github/workflows/ci.yml
 ├── datasets/
 │   └── example.jsonl
-├── results/                    # run outputs, baseline.json is committed
+├── results/
 ├── src/evalharness/
 │   ├── adapters/
-│   │   ├── base.py             # RagAdapter protocol
-│   │   └── http.py             # generic HTTP target
+│   │   ├── base.py
+│   │   └── http.py
 │   ├── metrics/
-│   │   ├── retrieval.py        # hit@k, reciprocal rank
-│   │   └── faithfulness.py     # LLM judge
-│   ├── cli.py                  # run, compare
-│   ├── dataset.py              # JSONL loader and validation
-│   ├── report.py               # save, load, compare runs
-│   └── runner.py               # per-case loop, summary, gates
+│   │   ├── retrieval.py
+│   │   └── faithfulness.py
+│   ├── cli.py
+│   ├── dataset.py
+│   ├── report.py
+│   └── runner.py
 ├── tests/
 ├── .env.example
 ├── LICENSE
-└── pyproject.toml
+├── pyproject.toml
+├── README.md
+└── .gitignore
 ```
+
+## CI pipeline
+
+The repository includes CI checks to keep the RAG evaluation pipeline reliable:
+
+- Ruff for linting
+- pytest for test validation
+- optional live evaluation runs using a configured RAG endpoint and API credentials
+
+## Example use cases
+
+This project is useful for evaluating:
+
+- blog Q&A systems,
+- internal docs assistants,
+- customer support copilots,
+- documentation retrieval pipelines,
+- prompt and chunking experiments for RAG.
 
 ## Roadmap
 
-- [ ] 30 to 50 cases built from real documents
-- [ ] `POST /eval/query` endpoint on Study Coach
-- [ ] Baseline run, committed as `results/baseline.json`
-- [ ] Experiment: chunk size
-- [ ] Experiment: top-k and reranking
-- [ ] Run the harness from Study Coach's CI
-- [ ] Latency and cost per case in the report
+- [ ] Build a realistic dataset from production content
+- [ ] Add more retrieval and reranking experiments
+- [ ] Compare chunk sizes and top-k values
+- [ ] Track latency and cost per evaluation run
+- [ ] Run the harness in CI for regression prevention
 
 ## License
 
